@@ -1,0 +1,319 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  MLOne-CyRAACS Application Layer stack for Talend server; Requires following
+  resources to be available for using it as parameters in this stack and they
+  are VPC, Subnets, NAT-Gateway, Internet-Gateway, SNS Topic, ACM Certificate,
+  S3 bucket
+Parameters:
+  MLcomWebEc2Name:
+    Description: >-
+      Give a name to the EC2 instance which will be set as hostname and also the
+      added as Name Tag to the EC2 instance.
+    Type: String
+    Default: MLBkp-githubintegration
+  Application:
+    Description: Application Name. Update_requires.No_interruption
+    Type: String
+    Default: MLBkp-githubintegration
+  EnvironmentName:
+    Description: >-
+      Environment Name like Development or Staging or Test or Production.
+      Update_requires.No_interruption
+    Type: String
+    Default: Production
+  EnvironmentNumber:
+    Description: >-
+      Environment Number like STG01, STG02, DEV01, DEV02, PRO01, PRO02.
+      Update_requires.No_interruption
+    Type: String
+    Default: PRO01
+  BackupEC2:
+    Description: >-
+      backup tag for EC2 instances. This is for AWS backup serivce to take
+      backup.
+    Type: String
+    Default: Production
+  WEBImageId:
+    Description: Enter Web AMI ID for MLCom Web instance.  Update_requires.Replacement
+    Type: String
+    Default: ami-08bd8e5c51334492e
+  WEBInstanceType:
+    Description: Instance Type for Web Instance. Update_requires.Replacement
+    Type: String
+    Default: t2.medium
+  KeyName:
+    Description: >-
+      Account-specific EC2 KeyPair to enable SSH access to the instances.
+      Update_requires.Replacement
+    Type: String
+    Default: GitHub-Intgration
+  RootEBSVolumeSize:
+    Description: Provides the size in GB of the root volume
+    Type: Number
+    Default: '50'
+  AvailabilityZone1:
+    Description: Enter the availability zone that the subnets are created in.
+    Type: String
+    Default: ap-south-1a
+  ApplicationSubnetA:
+    Description: >-
+      Enter subnet a private subnet in availablity zone A to launch API
+      instance. Update require.Some interruptions
+    Type: String
+    Default: subnet-ad1b1cc5
+  VpcId:
+    Description: VPC ID on which resource will be created.
+    Type: String
+    Default: vpc-70d4ca18
+  WEBDesiredSize:
+    Description: >-
+      Provides Desired number of  instances to be launched for CMS server.
+      Update_requires.No_interruption
+    Type: Number
+    Default: '1'
+    AllowedValues:
+      - '0'
+      - '1'
+      - '2'
+      - '3'
+      - '4'
+      - '5'
+      - '6'
+      - '7'
+      - '8'
+      - '9'
+  WEBMaxSize:
+    Description: >-
+      Provides Max number of  instances to be launched for CMS server.
+      Update_requires.No_interruption
+    Type: Number
+    Default: '1'
+    AllowedValues:
+      - '0'
+      - '1'
+      - '2'
+      - '3'
+      - '4'
+      - '5'
+      - '6'
+      - '7'
+      - '8'
+      - '9'
+  WEBMinSize:
+    Description: >-
+      Provides Min number of  instances to be launched for CMS server.
+      Update_requires.No_interruption
+    Type: Number
+    Default: '1'
+    AllowedValues:
+      - '0'
+      - '1'
+      - '2'
+      - '3'
+      - '4'
+      - '5'
+      - '6'
+      - '7'
+      - '8'
+      - '9'
+  cooldown:
+    Description: >-
+      Cooldown period in seconds for autoscaling.
+      Update_requires.No_interruption
+    Type: Number
+    Default: '240'
+  WEBSecurityGroup:
+    Description: Enter the WEB EC2 security Group ID
+    Type: String
+    Default: sg-09e891e6545c997e5
+  TopicForEmailAlerts:
+    Description: Enter the topic arn that will be used to send alerts
+    Type: String
+    Default: 'arn:aws:sns:ap-south-1:523618018923:test'
+  StackResourceAction:
+    Description: >-
+      Please choose DELETE if you just want to drop the resources to save cost,
+      otherwise choose Create
+    Type: String
+    AllowedValues:
+      - Create/Update
+      - Delete
+    Default: Create/Update
+Conditions:
+  CreateResources: !Equals 
+    - !Ref StackResourceAction
+    - Create/Update
+Mappings:
+  WEBEIP:
+    Production:
+      IPAddress: 65.1.251.101
+Resources:
+  AppInstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /system/
+  InstancePolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: InstancePolicy
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'cloudwatch:DescribeAlarms'
+              - 'cloudwatch:PutMetricData'
+              - 'ec2:AllocateAddress'
+              - 'ec2:AssociateAddress'
+              - 'ec2:AttachVolume'
+              - 'ec2:CreateTags'
+              - 'ec2:DescribeAddresses'
+              - 'ec2:DescribeTags'
+              - 'ec2:DescribeVolumes'
+              - 'ec2:DisassociateAddress'
+              - 'ec2:DescribeInstances'
+              - 'ec2:ModifyInstanceAttribute'
+              - 'logs:Create*'
+              - 'logs:DescribeLogGroups'
+              - 'logs:DescribeLogStreams'
+              - 'logs:PutLogEvents'
+              - 's3:PutObject'
+              - 'sns:Publish'
+              - 's3:*'
+              - 'sns:*'
+            Resource: '*'
+      Roles:
+        - !Ref AppInstanceRole
+  InstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref AppInstanceRole
+  CpuAlarmHigh:
+    Type: 'AWS::CloudWatch::Alarm'
+    Condition: CreateResources
+    Properties:
+      AlarmActions:
+        - !Ref ScaleUpPolicy
+        - !Ref TopicForEmailAlerts
+      AlarmDescription: Alarm if CPU too high or metric disappears indicating instance is down
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref WEBAutoScalingGroup
+      EvaluationPeriods: '1'
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Period: '60'
+      Statistic: Average
+      Threshold: '50'
+  CpuAlarmLowDNA:
+    Type: 'AWS::CloudWatch::Alarm'
+    Condition: CreateResources
+    Properties:
+      AlarmActions:
+        - !Ref ScaleDownPolicy
+      AlarmDescription: 'Scale-down if CPU < 15% for 5 minutes. "DO NOT ALERT on alarm" '
+      ComparisonOperator: LessThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref WEBAutoScalingGroup
+      EvaluationPeriods: '5'
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Period: '60'
+      Statistic: Average
+      Threshold: '15'
+  ScaleUpPolicy:
+    Type: 'AWS::AutoScaling::ScalingPolicy'
+    Condition: CreateResources
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref WEBAutoScalingGroup
+      Cooldown: !Ref cooldown
+      ScalingAdjustment: '1'
+  ScaleDownPolicy:
+    Type: 'AWS::AutoScaling::ScalingPolicy'
+    Condition: CreateResources
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref WEBAutoScalingGroup
+      Cooldown: !Ref cooldown
+      ScalingAdjustment: '-1'
+  WEBLaunchConfig:
+    Type: 'AWS::AutoScaling::LaunchConfiguration'
+    Metadata:
+      'AWS::CloudFormation::Init':
+        config:
+          packages: {}
+          services: {}
+          CreationPolicy:
+            ResourceSignal:
+              Timeout: PT5M
+    Properties:
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: !Ref RootEBSVolumeSize
+            DeleteOnTermination: 'True'
+        - DeviceName: /dev/sdc
+          VirtualName: ephemeral0
+        - DeviceName: /dev/sdd
+          VirtualName: ephemeral1
+      IamInstanceProfile: !Ref InstanceProfile
+      ImageId: !Ref WEBImageId
+      InstanceMonitoring: 'True'
+      InstanceType: !Ref WEBInstanceType
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref WEBSecurityGroup
+  WEBAutoScalingGroup:
+    Type: 'AWS::AutoScaling::AutoScalingGroup'
+    Condition: CreateResources
+    Properties:
+      Cooldown: !Ref cooldown
+      AvailabilityZones:
+        - !Ref AvailabilityZone1
+      DesiredCapacity: !Ref WEBDesiredSize
+      LaunchConfigurationName: !Ref WEBLaunchConfig
+      MaxSize: !Ref WEBMaxSize
+      MinSize: !Ref WEBMinSize
+      Tags:
+        - Key: Name
+          Value: !Ref MLcomWebEc2Name
+          PropagateAtLaunch: true
+        - Key: EnvironmentName
+          Value: !Ref EnvironmentName
+          PropagateAtLaunch: true
+        - Key: ApplicationName
+          Value: !Ref Application
+          PropagateAtLaunch: true
+        - Key: Talend-bkp-EC2
+          Value: !Ref BackupEC2
+          PropagateAtLaunch: true
+        - Key: prodwebcode
+          Value: prodcodedeploy
+          PropagateAtLaunch: true
+      VPCZoneIdentifier:
+        - !Ref ApplicationSubnetA
+Outputs:
+  EnvironmentName:
+    Description: Environment Name
+    Value: !Ref EnvironmentName
+  ApplicationName:
+    Description: Application Name
+    Value: !Ref Application
+  WebAMIid:
+    Description: Talend Web EC2 AMI id
+    Value: !Ref WEBImageId
+  WebInstanceType:
+    Description: Talend Web EC2 AMI id
+    Value: !Ref WEBInstanceType
