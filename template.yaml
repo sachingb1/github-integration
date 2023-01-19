@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: 2010-09-09
+iAWSTemplateFormatVersion: 2010-09-09
 Description: >-
   MLOne-CyRAACS Application Layer stack for Talend server; Requires following
   resources to be available for using it as parameters in this stack and they
@@ -40,7 +40,7 @@ Parameters:
   WEBInstanceType:
     Description: Instance Type for Web Instance. Update_requires.Replacement
     Type: String
-    Default: t2.nano
+    Default: t2.micro
   KeyName:
     Description: >-
       Account-specific EC2 KeyPair to enable SSH access to the instances.
