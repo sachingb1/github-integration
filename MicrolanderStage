@@ -1,0 +1,832 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "EduNxt Application Layer stack",
+  "Parameters": {
+    "Application": {
+      "Description": "Application Name",
+      "Type": "String",
+      "Default": "Microlander"
+    },
+    "BusinessName": {
+      "Description": "Business Name",
+      "Type": "String",
+      "Default": "ML-HR"
+    },
+    "EnvironmentName": {
+      "Description": "Environment Name like Development or Testing or Production",
+      "Type": "String",
+      "AllowedValues": [
+        "Development",
+        "Staging",
+        "Pre-prod",
+        "Production"
+      ]
+    },
+    "EnvironmentNumber": {
+      "Description": "Environment Number like DEV01, DEV02, PRO01, PRO02",
+      "Type": "String",
+      "Default": "STG01"
+    },
+    "APIImageId": {
+      "Description": "AMI image to boot from",
+      "Type": "String",
+      "Default": "ami-03113d6c"
+    },
+    
+    "APIInstanceType": {
+      "Description": "Instance Type for API Instance",
+      "Type": "String",
+      "Default": "t2.small"
+    },
+    "KeyName": {
+      "Description": "Account-specific EC2 KeyPair to enable SSH access to the instances",
+      "Type": "String",
+      "Default": "Microlander_key"
+    },
+    "RootEBSVolumeSize": {
+      "Description": "Provides the size in GB of the root volume",
+      "Type": "Number",
+      "Default": "50"
+    },
+    "AvailabilityZone1": {
+      "Description": "Enter the availability zone that the subnets are created in",
+      "Type": "String",
+      "Default": "ap-south-1a"
+    },
+    "AvailabilityZone2": {
+      "Description": "Enter the availability zone that the subnets are created in",
+      "Type": "String",
+      "Default": "ap-south-1b"
+    },
+    "ApplicationSubnetA": {
+      "Description": "Enter subnet A to launch API instance",
+      "Type": "String",
+      "Default": "subnet-b72790df"
+    },
+    "ApplicationSubnetB": {
+      "Description": "Enter subnet B to launch API instance",
+      "Type": "String",
+      "Default": "subnet-7bf61037"
+    },
+    "PublicSubnetA": {
+      "Description": "Public ELB subnet A",
+      "Type": "String",
+      "Default": "subnet-882790e0"
+    },
+    "PublicSubnetB": {
+      "Description": "Public ELB subnet B",
+      "Type": "String",
+      "Default": "subnet-62e90f2e"
+    },
+    
+    "MaxSize": {
+      "Description": "Provides Max number of  instances to be launched for API servers",
+      "Type": "Number",
+      "Default": "1"
+    },
+    "MinSize": {
+      "Description": "Provides Min number of  instances to be launched for API servers",
+      "Type": "Number",
+      "Default": "1"
+    },
+    "VpcId": {
+      "Description": "VPC identification ",
+      "Type": "String",
+      "Default": "vpc-f204ae9a"
+    },
+    "S3LoggingBucket": {
+      "Description": "S3 Bucket Name to write the Load Balancer logs",
+      "Type": "String",
+      "Default": "microlander-infra-logs"
+    },
+    "cooldown": {
+      "Description": "Cooldown period in seconds for autoscaling",
+      "Type": "Number",
+      "Default": "240"
+    },
+    "DBAccessSecurityGroup": {
+      "Description": "Enter the DB Access security Group ID. Hint: Available in outputs of DB Layer CFN Stack",
+      "Type": "String"
+    },
+    "DBHost": {
+      "Description": "Enter the DB Host End Point. Hint: Available in outputs of DB Layer CFN Stack",
+      "Type": "String"
+    },
+    "DBUser": {
+      "Description": "Enter the DB User ID. Hint: Available in outputs of DB Layer CFN Stack",
+      "Type": "String"
+    },
+    "DBName": {
+      "Description": "Enter the DB name",
+      "Type": "String"
+    },
+    "DBPassword": {
+      "Description": "Enter the DB Password. Hint: Please remember the one that was used while creating DB Layer",
+      "Type": "String",
+	  "NoEcho":"True"
+    },
+	"ElasticSearchEndPoint": {
+      "Description": "Enter the elastic Search VPC end point. Get the value from DBLayer stack output",
+      "Type": "String",
+	  "NoEcho":"False"
+	},  
+    "TopicForEmailAlerts": {
+      "Description": "Enter the topic arn that will be used to send alerts",
+      "Type": "String",
+      "Default": "arn:aws:sns:ap-south-1:113942300236:Topic4Alerts"
+    },
+    "StackResourceAction": {
+      "Description": "Please choose DELETE if you just want to drop the resources to save cost, otherwise choose Create",
+      "Type": "String",
+      "AllowedValues": [
+        "Create/Update",
+        "Delete"
+      ],
+      "Default": "Create/Update"
+    }
+  },
+  "Conditions": {
+    "CreateResources": {
+      "Fn::Equals": [
+        {
+          "Ref": "StackResourceAction"
+        },
+        "Create/Update"
+      ]
+    }
+  },
+  
+  "Resources": {
+    "AppInstanceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "ec2.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path": "/system/"
+      }
+    },
+    "InstancePolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "InstancePolicy",
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "cloudwatch:DescribeAlarms",
+                "cloudwatch:PutMetricData",
+                "ec2:AllocateAddress",
+                "ec2:AssociateAddress",
+                "ec2:AttachVolume",
+                "ec2:CreateTags",
+                "ec2:DescribeAddresses",
+                "ec2:DescribeTags",
+                "ec2:DescribeVolumes",
+                "ec2:DisassociateAddress",
+                "ec2:DescribeInstances",
+                "ec2:ModifyInstanceAttribute",
+                "logs:Create*",
+                "logs:DescribeLogGroups",
+                "logs:DescribeLogStreams",
+                "logs:PutLogEvents",
+                "s3:PutObject",
+                "sns:Publish",
+                "s3:*",
+                "sns:*"
+              ],
+              "Resource": "*"
+            }
+          ]
+        },
+        "Roles": [
+          {
+            "Ref": "AppInstanceRole"
+          }
+        ]
+      }
+    },
+    "InstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [
+          {
+            "Ref": "AppInstanceRole"
+          }
+        ]
+      }
+    },
+    "ElbSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Public ELB security allows access from anywhere on the internet on port 80",
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "80",
+            "ToPort": "80",
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "443",
+            "ToPort": "443",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ],
+        "VpcId": {
+          "Ref": "VpcId"
+        }
+      }
+    },
+    "Elb": {
+      "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Properties": {
+        "HealthCheck": {
+          "HealthyThreshold": "2",
+          "Interval": "10",
+          "Target": "TCP:80",
+          "Timeout": "2",
+          "UnhealthyThreshold": "2"
+        },
+        "Listeners": [
+          {
+            "InstancePort": "80",
+            "LoadBalancerPort": "80",
+            "Protocol": "HTTP"
+          }
+        ],
+        "SecurityGroups": [
+          {
+            "Ref": "ElbSecurityGroup"
+          }
+        ],
+        "Subnets": [
+          {
+            "Ref": "PublicSubnetA"
+          },
+          {
+            "Ref": "PublicSubnetB"
+          }
+        ],
+        "CrossZone": "true",
+        "AccessLoggingPolicy": {
+          "S3BucketName": {
+            "Ref": "S3LoggingBucket"
+          },
+          "S3BucketPrefix": {
+            "Fn::Join": [
+              "",
+              [
+                "logs/LoadBalancer/",
+                {
+                  "Ref": "EnvironmentName"
+                }
+              ]
+            ]
+          },
+          "Enabled": "true",
+          "EmitInterval": "60"
+        }
+      }
+    },
+	"UnHealthyHosts": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Condition": "CreateResources",
+      "Properties": {
+        "AlarmActions": [
+          {
+            "Ref": "TopicForEmailAlerts"
+          }
+        ],
+        "AlarmDescription": "Alarm if there are unhealthy instances on ELB",
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "LoadBalancerName",
+            "Value": {
+              "Ref": "Elb"
+            }
+          }
+        ],
+        "EvaluationPeriods": "1",
+        "MetricName": "UnHealthyHostCount",
+        "Namespace": "AWS/ELB",
+        "Period": "60",
+        "Statistic": "Average",
+        "Threshold": "0"
+      }
+    },
+    "CpuAlarmHigh": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Condition": "CreateResources",
+      "Properties": {
+        "AlarmActions": [
+          {
+            "Ref": "ScaleUpPolicy"
+          },
+          {
+            "Ref": "TopicForEmailAlerts"
+          }
+        ],
+        "AlarmDescription": "Alarm if CPU too high or metric disappears indicating instance is down",
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "AutoScalingGroupName",
+            "Value": {
+              "Ref": "APIAutoScalingGroup"
+            }
+          }
+        ],
+        "EvaluationPeriods": "1",
+        "MetricName": "CPUUtilization",
+        "Namespace": "AWS/EC2",
+        "Period": "60",
+        "Statistic": "Average",
+        "Threshold": "80"
+      }
+    },
+    "CpuAlarmLowDNA": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Condition": "CreateResources",
+      "Properties": {
+        "AlarmActions": [
+          {
+            "Ref": "ScaleDownPolicy"
+          }
+        ],
+        "AlarmDescription": "Scale-down if CPU < 15% for 5 minutes. \"DO NOT ALERT on alarm\" ",
+        "ComparisonOperator": "LessThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "AutoScalingGroupName",
+            "Value": {
+              "Ref": "APIAutoScalingGroup"
+            }
+          }
+        ],
+        "EvaluationPeriods": "5",
+        "MetricName": "CPUUtilization",
+        "Namespace": "AWS/EC2",
+        "Period": "60",
+        "Statistic": "Average",
+        "Threshold": "15"
+      }
+    },
+    "ScaleUpPolicy": {
+      "Type": "AWS::AutoScaling::ScalingPolicy",
+      "Condition": "CreateResources",
+      "Properties": {
+        "AdjustmentType": "ChangeInCapacity",
+        "AutoScalingGroupName": {
+          "Ref": "APIAutoScalingGroup"
+        },
+        "Cooldown": {
+          "Ref": "cooldown"
+        },
+        "ScalingAdjustment": "1"
+      }
+    },
+    "ScaleDownPolicy": {
+      "Type": "AWS::AutoScaling::ScalingPolicy",
+      "Condition": "CreateResources",
+      "Properties": {
+        "AdjustmentType": "ChangeInCapacity",
+        "AutoScalingGroupName": {
+          "Ref": "APIAutoScalingGroup"
+        },
+        "Cooldown": "600",
+        "ScalingAdjustment": "-1"
+      }
+    },
+    "APISecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": " Application security group only allows access from the corresponding load balancer on port 80",
+        "SecurityGroupIngress": [
+          {
+            "SourceSecurityGroupId": {
+              "Ref": "ElbSecurityGroup"
+            },
+            "IpProtocol": "tcp",
+            "FromPort": "443",
+            "ToPort": "443",
+			"Description": "Access to ELB"
+          },
+          {
+            "SourceSecurityGroupId": {
+              "Ref": "ElbSecurityGroup"
+            },
+            "IpProtocol": "tcp",
+            "FromPort": "80",
+            "ToPort": "80",
+			"Description": "Access to ELB"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "22",
+            "ToPort": "22",
+            "CidrIp": "52.66.190.201/32",
+			"Description": "Local Jump Host for InteractionOne"
+          },
+          {
+            "Description": "Local VPC",
+            "IpProtocol": "tcp",
+            "FromPort": "22",
+            "ToPort": "22",
+            "CidrIp": "192.192.0.0/24"
+          },
+          {
+            "Description": "Local VPC",
+            "IpProtocol": "tcp",
+            "FromPort": "22",
+            "ToPort": "22",
+            "CidrIp": "192.192.1.0/24"
+          },
+		 {
+            "Description": "RMC Jump Hosts",
+			"IpProtocol": "tcp",
+            "FromPort": "22",
+            "ToPort": "22",
+            "CidrIp": "192.168.150.0/25"
+          }
+        ],
+        "VpcId": {
+          "Ref": "VpcId"
+        }
+      }
+    },
+    
+	
+    "APILaunchConfiguration": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Metadata": {
+        "AWS::CloudFormation::Init": {
+          "config": {
+            "packages": {},
+            "services": {},
+            "CreationPolicy": {
+              "ResourceSignal": {
+                "Timeout": "PT5M"
+              }
+            },
+            "files": {
+			  "/opt/conf.ini":{
+					"content": {
+						"Fn::Join": [ "",
+							[
+								"DB_HOST=\"",{ "Ref": "DBHost" },"\"\n",
+								"DB_USER=\"",{ "Ref": "DBUser" },"\"\n",
+								"DB_PASS=\"",{ "Ref": "DBPassword" },"\"\n",
+								"DB_NAME=\"",{ "Ref": "DBName" },"\"\n",
+								"ES_HOST=\"",{ "Ref": "ElasticSearchEndPoint" },"\"\n"
+							]
+						]
+					}
+ 			  },
+              "/root/ami-preparation-scripts/basepacks.sh": {
+                "content": {
+                  "Fn::Join": [ "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "## The instructions in this list are to install required packages\n",
+                      "## It is advised to install these packages on the base instance and make an image\n",
+                      "## Use that image as a input for this CFN template\n",
+                      "## Each time installing these packages when instance come up will be time consuming process\n",
+                      "source /root/.bashrc\n",
+                      "apt-get -y update &&\n",
+                      "apt-get -y install unzip &&\n",
+                      "apt-get -y install libwww-perl libdatetime-perl &&\n",
+                      "apt-get -y install python-setuptools &&\n",
+                      "apt -y install ucommon-utils &&\n",
+                      "curl https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz | tar xz -C aws-cfn-bootstrap-latest --strip-components 1 &&\n",
+                      "easy_install aws-cfn-bootstrap-latest &&\n",
+                      "apt-get -y install awscli &&\n",
+                      "mkdir -p /tmp/aws-cfn-bootstrap-latest &&\n",
+                      "cd /tmp/ &&\n",
+                      "curl http://aws-cloudwatch.s3.amazonaws.com/downloads/CloudWatchMonitoringScripts-1.2.1.zip -O &&",
+                      "############################################################################\n",
+                      "unzip CloudWatchMonitoringScripts-1.2.1.zip &&\n",
+                      "rm CloudWatchMonitoringScripts-1.2.1.zip &&\n",
+                      "cd aws-scripts-mon &&\n",
+                      "mkdir -p /root/aws-scripts-mon &&\n",
+                      "cp ../aws-scripts-mon/* /root/aws-scripts-mon/ &&\n",
+                      "chmod +x /root/aws-scripts-mon/mon-put-instance-data.pl &&\n",
+                      "crontab -l > mycron &&\n",
+                      "echo \"*/1 * * * * /root/aws-scripts-mon/mon-put-instance-data.pl --mem-util --mem-used-incl-cache-buff --mem-used --mem-avail\" >> mycron &&\n",
+                      "crontab mycron &&\n",
+                      "############################################################################\n",
+                       "\n"
+                    ]
+                  ]
+                }
+              },
+              "/tmp/cwlogs/apacheaccess.conf": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "[general]\n",
+                      "state_file= /var/awslogs/agent-state\n",
+                      "log_group_name = API-Server-",
+                      {
+                        "Ref": "EnvironmentName"
+                      },
+                      "\n",
+                      "use_gzip_http_content_encoding = true \n",
+                      "datetime_format = %d/%b/%Y:%H:%M:%S\n",
+                      "time_zone = LOCAL\n",
+                      "\n",
+                      "[nginx]\n",
+                      "file = /var/log/nginx/stg-api_access.log\n",
+                      "log_group_name = API-Server-",
+                      {
+                        "Ref": "EnvironmentName"
+                      },
+                      "\n",
+                      "log_stream_name = {instance_id}/nginx-api-log\n",
+                      "datetime_format = %d/%b/%Y:%H:%M:%S\n",
+                      "time_zone = LOCAL\n",
+                      "\n",
+                      "[syslog]\n",
+                      "file = /var/log/syslog\n",
+                      "log_group_name = API-Server-",
+                      {
+                        "Ref": "EnvironmentName"
+                      },
+                      "\n",
+                      "log_stream_name = {instance_id}/sys-log\n",
+                      "datetime_format = %b %d %H:%M:%S\n",
+                      "time_zone = LOCAL\n",
+                      "\n",
+                      "[authlog]\n",
+                      "file = /var/log/auth.log\n",
+                      "log_group_name = API-Server-",
+                      {
+                        "Ref": "EnvironmentName"
+                      },
+                      "\n",
+                      "log_stream_name = {instance_id}/auth-log\n",
+                      "datetime_format = %b %d %H:%M:%S\n",
+                      "time_zone = LOCAL\n",
+                      "\n"
+                    ]
+                  ]
+                },
+                "mode": "000400",
+                "owner": "root",
+                "group": "root"
+              },
+              "/etc/cfn/cfn-hup.conf": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "[main]\n",
+                      "stack=",
+                      {
+                        "Ref": "AWS::StackId"
+                      },
+                      "\n",
+                      "region=",
+                      {
+                        "Ref": "AWS::Region"
+                      },
+                      "\n"
+                    ]
+                  ]
+                },
+                "mode": "000400",
+                "owner": "root",
+                "group": "root"
+              },
+              "/etc/cfn/hooks.d/cfn-auto-reloader.conf": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "[cfn-auto-reloader-hook]\n",
+                      "triggers=post.update\n",
+                      "path=Resources.APILaunchConfiguration.Metadata.AWS::CloudFormation::Init\n",
+                      "action=/opt/aws/bin/cfn-init -s ",
+                      {
+                        "Ref": "AWS::StackId"
+                      },
+                      " -r APILaunchConfiguration ",
+                      " --region     ",
+                      {
+                        "Ref": "AWS::Region"
+                      },
+                      "\n",
+                      "runas=root\n"
+                    ]
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Properties": {
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/sda1",
+            "Ebs": {
+              "VolumeSize": { "Ref": "RootEBSVolumeSize"},
+			  "DeleteOnTermination": "True"
+            }
+          },
+          {
+            "DeviceName": "/dev/sdc",
+            "VirtualName": "ephemeral0"
+          },
+          {
+            "DeviceName": "/dev/sdd",
+            "VirtualName": "ephemeral1"
+          }
+        ],
+        "IamInstanceProfile": {
+          "Ref": "InstanceProfile"
+        },
+        "ImageId": {
+          "Ref": "APIImageId"
+        },
+        "InstanceMonitoring": "True",
+        "InstanceType": {
+          "Ref": "APIInstanceType"
+        },
+        "KeyName": {
+          "Ref": "KeyName"
+        },
+        "SecurityGroups": [
+          {
+            "Ref": "APISecurityGroup"
+          },
+          {
+            "Ref": "DBAccessSecurityGroup"
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -xe\n",
+                "source /root/.bashrc\n",
+                "export EC2_REGION=",{"Ref": "AWS::Region"},
+                "\n",
+                "export InstanceId=\"`curl -fs http://169.254.169.254/latest/meta-data/instance-id/`\"\n",
+                "export AutoscalingGroupId=\"`aws --region ${EC2_REGION} --output=text ec2 describe-instances --instance-ids ${InstanceId} | grep 'aws:autoscaling:groupName' | cut -f3`\"\n",
+                "############################################################################\n",
+                "echo \"export ASG_GROUP=${AutoscalingGroupId}\" > /opt/cloudwatch.conf \n",
+                "echo \"export INSTANCE_ID=${InstanceId}\" >> /opt/cloudwatch.conf \n",
+                "############################################################################\n",
+                "/bin/hostname ",{ "Ref": "BusinessName" },"-API-",{"Ref": "EnvironmentName"},"-${InstanceId}\n",
+                "############################################################################\n",
+                "/usr/local/bin/cfn-init  --stack ",{ "Ref": "AWS::StackName" }," --resource APILaunchConfiguration  --region ${EC2_REGION} \n",
+                "# Start up the cfn-hup daemon to listen for changes to the EC2 instance metadata\n",
+                "/usr/local/bin/cfn-hup\n",
+                "############################################################################\n",
+				"# Get the CloudWatch Logs agent\n",
+				"wget https://s3.amazonaws.com/aws-cloudwatch/downloads/latest/awslogs-agent-setup.py &&\n",
+				"# Install the CloudWatch Logs agent\n",
+				"python awslogs-agent-setup.py -n -r ${EC2_REGION} -c /tmp/cwlogs/apacheaccess.conf || error_exit 'Failed to run CloudWatch Logs agent setup' &&\n",
+				"############################################################################\n",
+				"export interfaceId=\"`aws ec2 --region=${EC2_REGION} describe-instances --instance-id ${InstanceId} --query Reservations[0].Instances[0].NetworkInterfaces[0].NetworkInterfaceId --output=text`\"",
+				"\n",
+				"aws ec2 --region ${EC2_REGION} create-tags --resources ${interfaceId} ",
+				" --tags 'Key=\"Name\",Value=\"", { "Fn::Join": ["-",[{"Ref": "BusinessName"},"API",{"Ref": "EnvironmentNumber"}]]},"\"'",
+				"   'Key=\"BusinessName\",Value=\"", { "Ref": "BusinessName" },"\"'",
+				"   'Key=\"Env_Name\",Value=\"", { "Ref": "EnvironmentName" },"\"'",
+				"   'Key=\"Env_Number\",Value=\"", { "Ref": "EnvironmentNumber" },"\"'",
+				"   'Key=\"Biz_Owner\",Value=\"ML-HR\"'",
+				"   'Key=\"App_Name\",Value=\"", {"Ref": "Application"},"\"'",
+				"   'Key=\"App_Owner\",Value=\"CIS\"'",
+				"   'Key=\"Adm_Owner\",Value=\"RMC\"'",
+				"\n",
+                "############################################################################\n",
+                "export r=-1 \n",
+                "while [ \"$r\" != \"0\" ]; \n",
+                "do \n",
+                "\taws ec2 describe-volumes --region ${EC2_REGION} --output=text | grep ${InstanceId} | sed -e 's/\\t/\\n/g' | grep 'vol-';\n",
+                "\texport r=`echo $?`\n",
+                "\techo \"$r - Unable to find volume ID not available from instance ID meta-data http endpoint, retrying...\"; sleep 1; \n",
+                "done\n",
+                "export volumeIds=`aws ec2 describe-volumes --region ${EC2_REGION} --output=text | grep ${InstanceId} | sed -e 's/\\t/\\n/g' | grep 'vol-'`\n",
+				"for vol in ${volumeIds} \n",
+				"do\n",
+                "aws --region ${EC2_REGION} ec2 create-tags --resources ${vol} ",
+                " --tags 'Key=\"Name\",Value=\"", { "Fn::Join": ["-",[{"Ref": "BusinessName"},"API",{"Ref": "EnvironmentNumber"}]]},"\"'",
+				"   'Key=\"BusinessName\",Value=\"", { "Ref": "BusinessName" },"\"'",
+				"   'Key=\"Env_Name\",Value=\"", { "Ref": "EnvironmentName" },"\"'",
+				"   'Key=\"Env_Number\",Value=\"", { "Ref": "EnvironmentNumber" },"\"'",
+				"   'Key=\"Biz_Owner\",Value=\"ML-HR\"'",
+				"   'Key=\"App_Name\",Value=\"", {"Ref": "Application"},"\"'",
+				"   'Key=\"App_Owner\",Value=\"CIS\"'",
+				"   'Key=\"Adm_Owner\",Value=\"RMC\"'",
+                "\n",
+				"done\n",
+                "############################################################################\n",
+                "\n"
+              ]
+            ]
+          }
+        }
+      }
+    },
+    "APIAutoScalingGroup": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "Condition": "CreateResources",
+      "Properties": {
+        "Cooldown": {
+          "Ref": "cooldown"
+        },
+        "AvailabilityZones": [
+          {
+            "Ref": "AvailabilityZone1"
+          },
+          {
+            "Ref": "AvailabilityZone2"
+          }
+        ],
+        "DesiredCapacity": {
+          "Ref": "MinSize"
+        },
+        "LaunchConfigurationName": {
+          "Ref": "APILaunchConfiguration"
+        },
+        "LoadBalancerNames": [
+          {
+            "Ref": "Elb"
+          }
+        ],
+        "MaxSize": {
+          "Ref": "MaxSize"
+        },
+        "MinSize": {
+          "Ref": "MinSize"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Join": [
+                "-",
+                [
+                  {
+                    "Ref": "BusinessName"
+                  },
+                  "API",
+                  {
+                    "Ref": "EnvironmentNumber"
+                  }
+                ]
+              ]
+            },
+            "PropagateAtLaunch": "true"
+          },
+          {
+            "Key": "EnvironmentName",
+            "Value": {
+              "Ref": "EnvironmentName"
+            },
+            "PropagateAtLaunch": "true"
+          },
+          {
+            "Key": "ApplicationName",
+            "Value": {
+              "Ref": "Application"
+            },
+            "PropagateAtLaunch": "true"
+          }
+        ],
+        "VPCZoneIdentifier": [
+          {
+            "Ref": "ApplicationSubnetA"
+          },
+          {
+            "Ref": "ApplicationSubnetB"
+          }
+        ]
+      }
+    }
+    
+    
+  }
+  
+}
